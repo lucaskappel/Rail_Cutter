@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+<title>Rail Cutting Thing</title>
+</head>
+
+<body>
+	<a href="https://docs.google.com/document/d/1X0tniovY9GFS8utf_hrDHkxwIIPgNGg1HFsa_gX3pOw/edit?usp=sharing">Part number breakdown</a>
+	<h3>Rail Pitch</h3>
+	<input type="number" id="rail_pitch" style="background-color=#8cd9b3;color:#000000;" value="30"/>
+	<hr>
+	<table>
+		<tr>
+			<th>Attribute</th>
+			<th>Stock Rail</th>
+			<th>Desired Rail</th>
+		</tr>
+		<tr>
+			<th>Length</th>
+			<th><input type="number" id="stock_length" style="background-color=#8cd9b3;color:#000000;" value="600"/></th>
+			<th><input type="number" id="desired_length" style="background-color=#8cd9b3;color:#000000;" value="200"/></th>
+		</tr>
+		<tr>
+			<th>E1-Dimension</th>
+			<th><input type="number" id="stock_e1" style="background-color=#8cd9b3;color:#000000;" value="0"/></th>
+			<th><input type="number" id="desired_e1" style="background-color=#8cd9b3;color:#000000;" value="0"/></th>
+		</tr>
+		<tr>
+			<th></th>
+			<th>
+				<input type="checkbox" id="default_e1_input" name="default_e1_input">
+				<label for="default_e1_input">Custom E1</label>
+			</th>
+			<th>
+				<input type="checkbox" id="default_e1_output" name="default_e1_output">
+				<label for="default_e1_output">Custom E1</label>
+			</th>
+		</tr>
+	</table>
+	<hr>
+	<button id="button_calculator" onclick="document.getElementById('output_value').innerHTML = performCalculations()">Run</button>
+	<h4>Number of desired rails that can be made from the stock rail:</h4>
+	
+	<svg height="100" width="1000">
+		<rect x="0" y="0" width="1000" height="100" style="fill:#8b98ad;stroke:black;stroke-width:5;opacity:0.5"
+	</svg>
+	
+	<pre id="output_value"/>
+</body>
+
+<script>
+	
+	class rail{
+		
+		// Meta-methods ////////////////////////////////////////////////////////////////
+		
+		constructor(length, e1, pitch, parent_rail = null){
+			this.length = length;
+			this.pitch = pitch;
+			this.e1 = e1;
+			this.parent_rail = parent_rail;
+			this.children = [];
+			this.highlight_color = "white";
+		}
+		
+		get e2(){ return (this.length - this.e1)%this.pitch == 0 ? this.pitch : (this.length - this.e1)%this.pitch; }
+		
+		get last_rail() { return this.children.length == 0 ? this : this.children[this.children.length - 1].last_rail(); }
+		
+		// Methods ////////////////////////////////////////////////////////////////
+		
+		serialize_rails(return_array = []) { // collect all the rails with no children, aka all the pieces left at the end.
+			if(this.Children.length === 0){ return_array.push(this); return; } // if there are no more children, push this rail onto the return array. This happens first so we keep the rails in-order.
+			for(child in this.Children) { child.serialize_rails(return_array); } // recursive call, handing down the return_array, gathering all the rails with no children.
+			return return_array;
+		} // end of method serialize_rails
+		
+		cut_rail(distance_from_left_end_to_cut){ // Return whether the cut was successful.
+		
+			if(distance_from_left_end_to_cut > this.length) { return false; }
+			
+			this.children.push( new rail( // First rail starts at the left end and ends at the length of the cut.
+					distance_from_left_end_to_cut, // length will always be this
+					Math.min(this.e1, distance_from_left_end_to_cut), // if this.e1 is smaller than the cut length, then the e1 is the same. Otherwise, it's just the cut length.
+					this.pitch, // Pitch always matches
+					this)); // this rail is the parent of the new rail
+					
+			this.children.push( new rail( // Second rail starts at the length of the cut, and ends at the other end of the rail.
+					this.length - distance_from_left_end_to_cut, // length is always the original length minus the cut length
+					Math.min(this.length - distance_from_left_end_to_cut, (this.length - distance_from_left_end_to_cut - this.e2)%this.pitch), // if the cut makes a shorter second rail than the original e2, then e2 is just that length, otherwise, just the original e2
+					this.pitch, // Pitch always matches.
+					this)); // this rail is the parent of the new rail
+			
+			return true;
+		} // end of method cut_rail
+		
+		make_rail(desired_rail){ // Cut the rail as ordered. Return whether the desired rail was able to be made.
+		
+			// create a rollback in case the cuts go wrong.
+			let rollback_child_array = []
+			for(child_rail in this.children){ rollback_child_array.push(child_raiil); }
+			
+			// Perform the cuts. If either fails, roll back the children array to exclude any new cuts, since the desired rail isn't possible.
+			if( this.cut_rail( // if the desired rail's e1 is longer than the stock's, have to add a pitch to get the correct cut length.
+					this.e1 - desired_rail.e1 < 0 ? 
+					this.e1 - desired_rail.e1 + this.pitch : 
+					this.e1 - desired_rail.e1)){
+					
+				//If the cut in the if statement succeeded, then we can do this stuff
+				this.children[0].highlight_color = "red"; // assign the left piece red, waste rail
+				
+				if(this.children[1].cut_rail(desired_rail.length)){
+					this.children[1][0].highlight_color = "green"; // desired rail
+					this.children[1][1].highlight_color = "red"; // waste/remaining rail
+				} else { this.children = rollback_child_array; return false; } // Roll back the children array if the cut cannot be completed.
+			} else { return false; }
+			return true;
+		} // End of method make_rail
+	} // End of class rail
+	
+	function getDimensions(){
+		let dataset = [+document.getElementById("rail_pitch").value,
+			[+document.getElementById("stock_length").value, +document.getElementById("stock_e1").value],
+			[+document.getElementById("desired_length").value, +document.getElementById("desired_e1").value]];	
+		
+		if(document.getElementById("default_e1_input").checked){
+			dataset[1][1] = ((dataset[1][0]%dataset[0])/2).toFixed(3);
+		}
+		if(document.getElementById("default_e1_output").checked){
+			dataset[2][1] = ((dataset[2][0]%dataset[0])/2).toFixed(3);
+		}
+		return dataset;
+	}
+	
+	function performCalculations(){
+	/* TODO
+	- Optimize end dimension cutting. Should just need to flip the rail around to see if doing that makes smaller X_L, X_R, or X_C values.
+	- Butt joins
+	- cutting buffer to account for blade width
+	*/
+		let nrail = new rail(1000, 40, 60);
+		nrail.cut_rail(288);
+		console.log(nrail.e2);
+	
+		let dataset = getDimensions(); // [Pitch, [Stock length, stock e1], [desired length, desired e1]]
+		
+		// Error logic
+		let error_check = [
+			[dataset[0] <= 0, "Please enter a positive number for the pitch."],
+			[dataset[1][0] <= 0, "Please enter a positive number for the input rail length."],
+			[dataset[1][1] < 0, "Please enter a positive number for the input rail E1."],
+			[dataset[2][0] <= 0, "Please enter a positive number for the output rail length."],
+			[dataset[2][1] < 0, "Please enter a positive number for the pitch output rail E1."],
+			[dataset[1][1] >= dataset[0], "End-dimension of the input rail cannot exceed the pitch."],
+			[dataset[2][1] >= dataset[0], "End-dimension of the output rail cannot exceed the pitch."],
+			[dataset[1][0] < dataset[2][0], "Input rail length must be at least as long as the output rail length."]			
+		];
+		let error_string = error_check.reduce((previousValue, currentValue) => (currentValue[0] == true) ? previousValue + "\n" + currentValue[1] : previousValue, "");
+		if(error_string != ""){ return `Error:\n${error_string}`; }
+		
+		/*
+			Number of output rails * length of output rails + length of removed rail = number of input rails * length of input rails
+			number of input rails = 1
+			length of output rails, length of input rails = input values, solved
+			
+			Number of output rails = length of input rails - length of removed rail)/length of output rail
+			number of output rails and length of removed rail are the unknown parameters.
+			
+			length of removed rail is the variable to solve for.
+			length of removed rail = length removed at the left side + length removed at the middle + length removed at the right side
+			length of removed rail = X
+			X = X_L + X_C + X_R
+		*/
+		
+		// end cut rail -> if E_desired <= E_stock, X_... = E_desired - E_stock, otherwise must add a pitch to meet ends.
+		let E2 = (E1, length, pitch) => (length - E1)%pitch;
+		let X_end = (E_in, E_out, pitch) => E_out > E_in ? E_in - E_out + pitch : E_in - E_out;
+		
+		let X_ends = [ // = [Rail cut off of E1 side of input rail, Rail cut off of E2 side of input rail.
+			X_end( //  Left/E1 side
+				dataset[1][1], // E1_in is given
+				dataset[2][1], // E1_out is given
+				dataset[0]), // pitch is given
+			X_end( // Right/E2 side
+				E2(dataset[1][1], dataset[1][0], dataset[0]), // E2_in is found from E1_in, length_in, and pitch
+				E2(dataset[2][1], dataset[2][0], dataset[0]), // E2_out is found from E1_out, length_out, and pitch
+				dataset[0]) // pitch is given
+		];
+
+		/* Body cuts
+		The amount of rail cut off for each pitch is:
+		if E2 + E1 <= pitch -> X_C = pitch - E2 - E1
+		if E2 + E1 > pitch -> X_C = 2*pitch - E2 - E1
+		
+		Remaining rail is input length - the end cuts. 
+		*/
+		let X_C = dataset[2][1] + E2(dataset[2][1], dataset[2][0], dataset[0]) <= dataset[0] ? dataset[0] - dataset[2][1] - E2(dataset[2][1], dataset[2][0], dataset[0]) : 2*dataset[0] - dataset[2][1] - E2(dataset[2][1], dataset[2][0], dataset[0]);
+		
+		/* The equation describing the rail cuts is as follows:
+		X_L + (Rail_output_length + X_C + Rail_output_length + X_C + ... + X_C + Rail_output_length) + X_R = Rail_input_length
+		X_L + N_out * Rail_output_Length + (N_out - 1) * X_C + X_R = Rail_input_length
+		
+		Rail_input_length - X_L - X_R = N_out * Rail_output_Length + N_out * X_C - X_C
+		Rail_input_length - X_L - X_R + X_C = N_out(Rail_output_Length + X_C)
+		N_out = (Rail_input_length - X_L - X_R + X_C) / (Rail_output_Length + X_C) -> round this down for the whole number.
+		The amount removed due to rounding is the amount of (X_C + L_out) that was only partially completed, so add this too the cut off rail.
+		*/
+		
+		let N_out = (dataset[1][0] - X_ends[0] - X_ends[1] + X_C) / (dataset[2][0] + X_C);
+		let cut_rail = dataset[1][0] - Math.floor(N_out) * dataset[2][0]
+		// X_ends[0] + X_ends[1] + (Math.floor(N_out) - 1) * X_C + (N_out%1)*(dataset[2][0] + X_C) // <- Old cut rail calc
+		
+		return `${Math.floor(N_out)} output rails made, removing ${cut_rail} mm of rail.`;
+	}
+</script>
+
+</html>
